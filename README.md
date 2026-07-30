@@ -9,6 +9,7 @@ the Decepticon autonomous security platform.
 
 ## Features
 
+- Responsive full-width terminal and low-latency keyboard handling
 - SHIZBENDO terminal ASCII logo
 - `Shizbendo — pick an engagement`
 - `[Shizbendo#VERSION | Soundwave]`
