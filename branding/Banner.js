@@ -1,49 +1,45 @@
-import React from "react";
-import { Box, Text, useStdout } from "ink";
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { Box, Text } from "ink";
 
-const WIDE = String.raw`
- ███████╗██╗  ██╗██╗███████╗██████╗ ███████╗███╗   ██╗██████╗  ██████╗
- ██╔════╝██║  ██║██║╚══███╔╝██╔══██╗██╔════╝████╗  ██║██╔══██╗██╔═══██╗
- ███████╗███████║██║  ███╔╝ ██████╔╝█████╗  ██╔██╗ ██║██║  ██║██║   ██║
- ╚════██║██╔══██║██║ ███╔╝  ██╔══██╗██╔══╝  ██║╚██╗██║██║  ██║██║   ██║
- ███████║██║  ██║██║███████╗██████╔╝███████╗██║ ╚████║██████╔╝╚██████╔╝
- ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝  ╚═════╝
+const LOGO_LINES = Object.freeze([
+    "███████╗██╗  ██╗██╗███████╗██████╗ ███████╗███╗   ██╗██████╗  ██████╗",
+    "██╔════╝██║  ██║██║╚══███╔╝██╔══██╗██╔════╝████╗  ██║██╔══██╗██╔═══██╗",
+    "███████╗███████║██║  ███╔╝ ██████╔╝█████╗  ██╔██╗ ██║██║  ██║██║   ██║",
+    "╚════██║██╔══██║██║ ███╔╝  ██╔══██╗██╔══╝  ██║╚██╗██║██║  ██║██║   ██║",
+    "███████║██║  ██║██║███████╗██████╔╝███████╗██║ ╚████║██████╔╝╚██████╔╝",
+    "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝  ╚═════╝",
+]);
 
-                    SECURITY ORCHESTRATION
-`;
-
-const MEDIUM = String.raw`
-  ███████╗██╗  ██╗██╗███████╗██████╗ ███████╗███╗   ██╗██████╗  ██████╗
-  ███████╗███████║██║  ███╔╝ ██████╔╝█████╗  ██╔██╗ ██║██║  ██║██║   ██║
-  ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝  ╚═════╝
-`;
-
-const COMPACT = "S H I Z B E N D O";
-
-export const Banner = React.memo(function Banner() {
-    const { stdout } = useStdout();
-    const columns = stdout?.columns ?? 80;
-
-    const banner =
-        columns >= 105
-            ? WIDE
-            : columns >= 75
-                ? MEDIUM
-                : COMPACT;
-
-    return React.createElement(
-        Box,
-        {
-            flexDirection: "column",
-            marginBottom: 1,
-        },
-        React.createElement(
+export function Banner() {
+    const logoRows = LOGO_LINES.map((line, index) =>
+        _jsx(
             Text,
             {
-                color: "red",
                 bold: true,
+                color: "red",
+                wrap: "truncate",
+                children: line,
             },
-            banner,
+            `shizbendo-logo-${index}`,
         ),
     );
-});
+
+    return _jsxs(Box, {
+        flexDirection: "column",
+        alignItems: "center",
+        children: [
+            ...logoRows,
+            _jsx(Text, { children: " " }, "shizbendo-spacer"),
+            _jsx(
+                Text,
+                {
+                    bold: true,
+                    children: "SECURITY ORCHESTRATION",
+                },
+                "shizbendo-subtitle",
+            ),
+        ],
+    });
+}
+
+export default Banner;
