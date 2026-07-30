@@ -3,6 +3,10 @@
 Shizbendo is a branding and terminal-launcher customization layer for
 the Decepticon autonomous security platform.
 
+## Preview
+
+![Shizbendo CLI preview](assets/shizbendo-cli-preview.png)
+
 ## Features
 
 - SHIZBENDO terminal ASCII logo
