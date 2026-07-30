@@ -1,0 +1,720 @@
+#!/usr/bin/env bash
+
+set -u
+
+TOOL_NAME="Shizbendo"
+REPO_URL="https://github.com/PurpleAILAB/Shizbendo"
+INSTALL_URL="https://decepticon.red/install"
+
+export PATH="/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
+
+pause_menu()
+{
+    echo
+    read -r -p "Press Enter to continue..."
+}
+
+
+find_decepticon()
+{
+    local candidate
+    local original_user="${SUDO_USER:-}"
+
+    if command -v decepticon >/dev/null 2>&1
+    then
+        command -v decepticon
+        return 0
+    fi
+
+    for candidate in \
+        "/usr/local/bin/decepticon" \
+        "/usr/bin/decepticon" \
+        "/root/.local/bin/decepticon" \
+        "${original_user:+/home/$original_user/.local/bin/decepticon}"
+    do
+        [[ -n "$candidate" && -x "$candidate" ]] || continue
+
+        printf '%s\n' "$candidate"
+        return 0
+    done
+
+    return 1
+}
+
+
+install_compose_plugin()
+{
+    local machine
+    local compose_arch
+    local plugin_dir
+    local plugin_path
+    local download_url
+    local checksum_url
+    local temp_binary
+    local temp_checksum
+    local expected_checksum
+
+    machine="$(uname -m)"
+
+    case "$machine" in
+        x86_64|amd64)
+            compose_arch="x86_64"
+            ;;
+
+        aarch64|arm64)
+            compose_arch="aarch64"
+            ;;
+
+        *)
+            echo
+            echo "[-] Unsupported architecture: $machine"
+            echo "[-] Shizbendo supports Linux amd64 and arm64."
+            return 1
+            ;;
+    esac
+
+    plugin_dir="/usr/local/lib/docker/cli-plugins"
+    plugin_path="$plugin_dir/docker-compose"
+
+    download_url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${compose_arch}"
+    checksum_url="${download_url}.sha256"
+
+    temp_binary="$(mktemp /tmp/docker-compose.XXXXXX)"
+    temp_checksum="${temp_binary}.sha256"
+
+    echo
+    echo "[*] Installing the official Docker Compose plugin..."
+    echo "[*] Architecture: $compose_arch"
+
+    mkdir -p "$plugin_dir"
+
+    if ! curl \
+        --fail \
+        --location \
+        --show-error \
+        --retry 3 \
+        "$download_url" \
+        --output "$temp_binary"
+    then
+        echo "[-] Could not download Docker Compose."
+        rm -f "$temp_binary" "$temp_checksum"
+        return 1
+    fi
+
+    if ! curl \
+        --fail \
+        --location \
+        --show-error \
+        --retry 3 \
+        "$checksum_url" \
+        --output "$temp_checksum"
+    then
+        echo "[-] Could not download the checksum."
+        rm -f "$temp_binary" "$temp_checksum"
+        return 1
+    fi
+
+    expected_checksum="$(
+        awk 'NF {print $1; exit}' "$temp_checksum"
+    )"
+
+    if [[ ! "$expected_checksum" =~ ^[a-fA-F0-9]{64}$ ]]
+    then
+        echo "[-] Invalid checksum received."
+        rm -f "$temp_binary" "$temp_checksum"
+        return 1
+    fi
+
+    echo "[*] Verifying download..."
+
+    if ! printf '%s  %s\n' \
+        "$expected_checksum" \
+        "$temp_binary" |
+        sha256sum --check --status
+    then
+        echo "[-] Docker Compose checksum verification failed."
+        rm -f "$temp_binary" "$temp_checksum"
+        return 1
+    fi
+
+    install \
+        -o root \
+        -g root \
+        -m 0755 \
+        "$temp_binary" \
+        "$plugin_path"
+
+    rm -f "$temp_binary" "$temp_checksum"
+    hash -r
+
+    if ! docker compose version
+    then
+        echo
+        echo "[-] Docker CLI did not detect the Compose plugin."
+        echo "[-] Plugin location: $plugin_path"
+        return 1
+    fi
+
+    echo
+    echo "[+] Docker Compose installed successfully."
+}
+
+
+install_docker_requirements()
+{
+    echo
+    echo "[*] Checking prerequisites..."
+
+    if ! command -v curl >/dev/null 2>&1
+    then
+        apt-get update
+        apt-get install -y curl ca-certificates
+    fi
+
+    if ! command -v sha256sum >/dev/null 2>&1
+    then
+        apt-get update
+        apt-get install -y coreutils
+    fi
+
+    if ! command -v docker >/dev/null 2>&1
+    then
+        echo "[*] Installing Docker..."
+
+        apt-get update
+        apt-get install -y docker.io
+    fi
+
+    if ! docker compose version >/dev/null 2>&1
+    then
+        install_compose_plugin || return 1
+    fi
+
+    echo
+    echo "[*] Starting Docker..."
+
+    if command -v systemctl >/dev/null 2>&1
+    then
+        systemctl enable --now docker 2>/dev/null || true
+    fi
+
+    if ! docker info >/dev/null 2>&1
+    then
+        if command -v service >/dev/null 2>&1
+        then
+            service docker start 2>/dev/null || true
+        fi
+    fi
+
+    if ! docker info >/dev/null 2>&1
+    then
+        echo
+        echo "[-] Docker is installed, but the daemon is not running."
+        echo "[-] Try: sudo systemctl restart docker"
+        return 1
+    fi
+
+    echo
+    echo "[+] Docker is ready:"
+    docker --version
+    docker compose version
+}
+
+
+install_decepticon()
+{
+    local installer
+    local command_path
+
+    clear
+
+    echo "================================================="
+    echo "          DECEPTICON INSTALL / UPDATE"
+    echo "================================================="
+    echo
+    echo "Official source:"
+    echo "$REPO_URL"
+    echo
+
+    install_docker_requirements || {
+        pause_menu
+        return 1
+    }
+
+    installer="$(mktemp /tmp/decepticon-install.XXXXXX.sh)"
+
+    echo
+    echo "[*] Downloading the official installer..."
+
+    if ! curl \
+        --fail \
+        --silent \
+        --show-error \
+        --location \
+        "$INSTALL_URL" \
+        --output "$installer"
+    then
+        echo "[-] Could not download the official installer."
+        rm -f "$installer"
+        pause_menu
+        return 1
+    fi
+
+    chmod 0700 "$installer"
+
+    echo "[*] Running the official installer..."
+    echo
+
+    echo "[*] Using the official latest final release channel..."
+
+    if ! CHANNEL=latest bash "$installer"
+    then
+        echo
+        echo "[-] Shizbendo installation failed."
+        rm -f "$installer"
+        pause_menu
+        return 1
+    fi
+
+    rm -f "$installer"
+    hash -r
+
+    command_path="$(find_decepticon 2>/dev/null || true)"
+
+    if [[ -z "$command_path" ]]
+    then
+        echo
+        echo "[-] Installation finished, but the decepticon command"
+        echo "    could not be located."
+        pause_menu
+        return 1
+    fi
+
+    echo
+    echo "[+] Shizbendo command:"
+    echo "    $command_path"
+
+    pause_menu
+}
+
+
+ensure_decepticon()
+{
+    local answer
+
+    if find_decepticon >/dev/null 2>&1
+    then
+        return 0
+    fi
+
+    echo
+    echo "[-] Shizbendo is not installed."
+    read -r -p "Install it now? [Y/n]: " answer
+
+    case "$answer" in
+        n|N|no|NO)
+            return 1
+            ;;
+    esac
+
+    install_decepticon
+
+    find_decepticon >/dev/null 2>&1
+}
+
+
+confirm_authorisation()
+{
+    local answer
+
+    echo
+    echo "================================================="
+    echo "              AUTHORISED USE ONLY"
+    echo "================================================="
+    echo
+    echo "Use Shizbendo only against systems and networks"
+    echo "you own or have explicit written permission to test."
+    echo
+    read -r -p "Confirm authorised testing [y/N]: " answer
+
+    case "$answer" in
+        y|Y|yes|YES)
+            return 0
+            ;;
+
+        *)
+            echo
+            echo "[-] Launch cancelled."
+            sleep 2
+            return 1
+            ;;
+    esac
+}
+
+
+fix_minimax_profile()
+{
+    local env_file="/root/.decepticon/.env"
+
+    [[ -f "$env_file" ]] || return 0
+
+    if ! grep -Eiq \
+        '^DECEPTICON_AUTH_PRIORITY=.*minimax_api' \
+        "$env_file"
+    then
+        return 0
+    fi
+
+    if grep -q \
+        '^DECEPTICON_MODEL_PROFILE=eco' \
+        "$env_file"
+    then
+        sed -i \
+            's/^DECEPTICON_MODEL_PROFILE=eco/DECEPTICON_MODEL_PROFILE=max/' \
+            "$env_file"
+
+        echo
+        echo "[i] MiniMax does not support the eco LOW tier."
+        echo "[+] Model profile automatically changed to max."
+
+    elif ! grep -q \
+        '^DECEPTICON_MODEL_PROFILE=' \
+        "$env_file"
+    then
+        printf '\nDECEPTICON_MODEL_PROFILE=max\n' \
+            >> "$env_file"
+
+        echo
+        echo "[+] MiniMax model profile set to max."
+    fi
+}
+
+
+show_saved_provider_settings()
+{
+    local env_file="$1"
+    local provider
+    local profile
+    local language
+
+    provider="$(
+        sed -n \
+            's/^DECEPTICON_AUTH_PRIORITY=//p' \
+            "$env_file" |
+        head -n 1
+    )"
+
+    profile="$(
+        sed -n \
+            's/^DECEPTICON_MODEL_PROFILE=//p' \
+            "$env_file" |
+        head -n 1
+    )"
+
+    language="$(
+        sed -n \
+            's/^DECEPTICON_LANGUAGE=//p' \
+            "$env_file" |
+        head -n 1
+    )"
+
+    printf "  Provider  %s\n" "${provider:-not configured}"
+    printf "  Profile   %s\n" "${profile:-not configured}"
+    printf "  Language  %s\n" "${language:-not configured}"
+}
+
+
+start_decepticon()
+{
+    local command_path
+    local provider_choice
+    local env_file="/root/.decepticon/.env"
+
+    ensure_decepticon || return
+
+    command_path="$(find_decepticon)"
+
+    while true
+    do
+        clear
+
+        echo "================================================="
+        echo "             SELECT AI PROVIDER"
+        echo "================================================="
+        echo
+
+        if [[ -f "$env_file" ]]
+        then
+            echo "Current saved settings:"
+            echo
+
+            show_saved_provider_settings "$env_file"
+            echo
+        else
+            echo "Current saved settings: none"
+            echo
+        fi
+
+        echo "  1) Use saved provider"
+        echo "  2) Open provider wizard"
+        echo
+        echo "  b) Cancel"
+        echo
+        read -r -p "  Choose: " provider_choice
+
+        case "$provider_choice" in
+            1)
+                if [[ ! -s "$env_file" ]]
+                then
+                    clear
+
+                    echo "================================================="
+                    echo "             PROVIDER WIZARD"
+                    echo "================================================="
+                    echo
+
+                    "$command_path" onboard || {
+                        echo
+                        echo "[-] Provider configuration failed."
+                        pause_menu
+                        return
+                    }
+                fi
+
+                if declare -F fix_minimax_profile >/dev/null
+                then
+                    fix_minimax_profile
+                fi
+
+                break
+                ;;
+
+            2)
+                clear
+
+                echo "================================================="
+                echo "             PROVIDER WIZARD"
+                echo "================================================="
+                echo
+                echo "Select the provider, API key and model profile."
+                echo
+
+                "$command_path" onboard --reset
+
+                wizard_status=$?
+
+                if [[ "$wizard_status" -ne 0 ]]
+                then
+                    echo
+                    echo "[-] Provider wizard failed."
+                    echo "[-] Exit status: $wizard_status"
+                    pause_menu
+                    return
+                fi
+
+                if declare -F fix_minimax_profile >/dev/null
+                then
+                    fix_minimax_profile
+                fi
+
+                echo
+                echo "[+] Provider configuration completed."
+                pause_menu
+                break
+                ;;
+
+            b|B|back|BACK)
+                return
+                ;;
+        esac
+    done
+
+    confirm_authorisation || return
+
+    clear
+
+    echo "[*] Starting Shizbendo..."
+    echo "[*] Docker services will start automatically."
+    echo "[*] Web dashboard: http://localhost:3000"
+    echo
+
+    # BEGIN SHIZBENDO CLI BRANDING
+    if ! /usr/local/bin/mscript-shizbendo-branding
+    then
+        echo
+        echo "[-] Shizbendo branding preparation failed."
+        echo "[i] The security services were not modified."
+        pause_menu
+        return
+    fi
+    # END SHIZBENDO CLI BRANDING
+
+    /usr/local/bin/shizbendo-pty "$command_path"
+
+    pause_menu
+}
+
+onboard_decepticon()
+{
+    local command_path
+    local wizard_status
+
+    ensure_decepticon || return
+
+    command_path="$(find_decepticon)"
+
+    clear
+
+    echo "================================================="
+    echo "             PROVIDER WIZARD"
+    echo "================================================="
+    echo
+    echo "This will display the available AI providers."
+    echo "You can change the API key, provider, profile"
+    echo "and language."
+    echo
+
+    echo "[*] Executing:"
+    echo "    $command_path onboard --reset"
+    echo
+
+    "$command_path" onboard --reset
+    wizard_status=$?
+
+    if [[ "$wizard_status" -eq 0 ]]
+    then
+        if declare -F fix_minimax_profile >/dev/null
+        then
+            fix_minimax_profile
+        fi
+
+        echo
+        echo "[+] Provider configuration completed."
+    else
+        echo
+        echo "[-] Provider wizard failed."
+        echo "[-] Exit status: $wizard_status"
+    fi
+
+    pause_menu
+}
+
+stop_decepticon()
+{
+    local command_path
+
+    clear
+
+    echo "================================================="
+    echo "          STOP DECEPTICON SERVICES"
+    echo "================================================="
+    echo
+
+    command_path="$(find_decepticon 2>/dev/null || true)"
+
+    if [[ -z "$command_path" ]]
+    then
+        echo "[-] Shizbendo is not installed."
+        pause_menu
+        return
+    fi
+
+    echo "[*] Stopping Shizbendo Docker services..."
+    echo
+
+    if "$command_path" stop
+    then
+        echo
+        echo "[+] All Shizbendo services stopped."
+    else
+        echo
+        echo "[-] Stop command returned an error."
+        echo
+        echo "Remaining containers:"
+
+        docker ps -a \
+            --filter 'name=decepticon-' \
+            --format 'table {{.Names}}\t{{.Status}}' \
+            2>/dev/null || true
+    fi
+
+    pause_menu
+}
+
+show_information()
+{
+    clear
+
+    echo "================================================="
+    echo "                 DECEPTICON"
+    echo "================================================="
+    echo
+    echo "Autonomous AI red-team agent."
+    echo
+    echo "Official source:"
+    echo "$REPO_URL"
+    echo
+    echo "Prerequisites:"
+    echo "  - Docker"
+    echo "  - Docker Compose v2"
+    echo
+    echo "Recommended first-use sequence:"
+    echo "  1. Run onboarding"
+    echo "  2. Start Shizbendo"
+    echo
+    echo "Use only for explicitly authorised security testing."
+
+    pause_menu
+}
+
+
+main()
+{
+    local choice
+
+    while true
+    do
+        clear
+
+        echo "---------------- DECEPTICON ----------------"
+        echo
+        echo "  1) Start Shizbendo / select provider"
+        echo "  2) Change AI provider / configure"
+        echo "  3) Stop Shizbendo services"
+        echo "  4) Install / update"
+        echo "  5) Information"
+        echo
+        echo "  b) Go back"
+        echo
+        read -r -p "  Choose: " choice
+
+        case "$choice" in
+            1)
+                start_decepticon
+                ;;
+
+            2)
+                onboard_decepticon
+                ;;
+
+            3)
+                stop_decepticon
+                ;;
+
+            4)
+                install_decepticon
+                ;;
+
+            5|i|I)
+                show_information
+                ;;
+
+            b|B|back|BACK)
+                exit 0
+                ;;
+        esac
+    done
+}
+
+main "$@"

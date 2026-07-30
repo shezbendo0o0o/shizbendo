@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="/root/.decepticon"
+BRAND_DIR="$ROOT/shizbendo-branding"
+COMPOSE_FILE="$ROOT/docker-compose.yml"
+VERSION_FILE="$ROOT/.version"
+
+VERSION=""
+
+if [[ -f "$VERSION_FILE" ]]
+then
+    VERSION="$(
+        head -n 1 "$VERSION_FILE" |
+        tr -d '\r\n[:space:]' |
+        sed 's/^v//'
+    )"
+fi
+
+VERSION="${VERSION:-1.1.40}"
+
+OFFICIAL_IMAGE="ghcr.io/purpleailab/decepticon-cli:${VERSION}"
+LOCAL_IMAGE="local/shizbendo-cli:${VERSION}"
+
+for required_file in \
+    "$BRAND_DIR/Banner.js" \
+    "$BRAND_DIR/shizbendo-entrypoint.mjs" \
+    "$BRAND_DIR/Dockerfile" \
+    "$COMPOSE_FILE"
+do
+    [[ -f "$required_file" ]] || {
+        echo "[-] Missing: $required_file"
+        exit 1
+    }
+done
+
+echo "[*] Shizbendo CLI version: $VERSION"
+
+if ! docker image inspect \
+    "$OFFICIAL_IMAGE" >/dev/null 2>&1
+then
+    echo "[*] Pulling official CLI image..."
+    docker pull "$OFFICIAL_IMAGE"
+fi
+
+BRAND_HASH="$(
+    cat \
+        "$BRAND_DIR/Banner.js" \
+        "$BRAND_DIR/shizbendo-entrypoint.mjs" \
+        "$BRAND_DIR/Dockerfile" |
+    sha256sum |
+    awk '{print $1}'
+)"
+
+CURRENT_HASH="$(
+    docker image inspect "$LOCAL_IMAGE" \
+        --format \
+        '{{index .Config.Labels "org.mscript.brand_hash"}}' \
+        2>/dev/null || true
+)"
+
+CURRENT_REVISION="$(
+    docker image inspect "$LOCAL_IMAGE" \
+        --format \
+        '{{index .Config.Labels "org.mscript.brand_revision"}}' \
+        2>/dev/null || true
+)"
+
+if [[ "$CURRENT_HASH" != "$BRAND_HASH" ||
+      "$CURRENT_REVISION" != "picker-display-v3" ]]
+then
+    echo "[*] Building the updated Shizbendo CLI..."
+
+    docker build \
+        --no-cache \
+        --build-arg "BASE_IMAGE=$OFFICIAL_IMAGE" \
+        --build-arg "BRAND_HASH=$BRAND_HASH" \
+        --tag "$LOCAL_IMAGE" \
+        "$BRAND_DIR"
+else
+    echo "[+] Branded CLI image is current."
+fi
+
+python3 - \
+    "$COMPOSE_FILE" \
+    "$LOCAL_IMAGE" <<'COMPOSE_PATCH_PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+local_image = sys.argv[2]
+
+lines = path.read_text(
+    encoding="utf-8",
+    errors="strict",
+).splitlines()
+
+pattern = re.compile(
+    r'^(\s*)image:\s*'
+    r'["\x27]?'
+    r'(?:'
+    r'ghcr\.io/purpleailab/decepticon-cli'
+    r'|local/shizbendo-cli'
+    r')'
+    r':[^\s"\x27]+'
+    r'["\x27]?\s*$'
+)
+
+matches = []
+
+for index, line in enumerate(lines):
+    match = pattern.match(line)
+
+    if match:
+        matches.append(
+            (index, match.group(1)),
+        )
+
+if not matches:
+    raise SystemExit(
+        "CLI image definition was not found.",
+    )
+
+offset = 0
+
+for original_index, indent in matches:
+    index = original_index + offset
+
+    lines[index] = (
+        f'{indent}image: "{local_image}"'
+    )
+
+    block_end = index + 1
+
+    while block_end < len(lines):
+        line = lines[block_end]
+
+        if line.strip():
+            current_indent = (
+                len(line) -
+                len(line.lstrip())
+            )
+
+            if current_indent < len(indent):
+                break
+
+        block_end += 1
+
+    pull_policy_index = None
+
+    for check in range(
+        index + 1,
+        block_end,
+    ):
+        if re.match(
+            rf'^{re.escape(indent)}'
+            r'pull_policy:',
+            lines[check],
+        ):
+            pull_policy_index = check
+            break
+
+    if pull_policy_index is None:
+        lines.insert(
+            index + 1,
+            f"{indent}pull_policy: never",
+        )
+
+        offset += 1
+    else:
+        lines[pull_policy_index] = (
+            f"{indent}pull_policy: never"
+        )
+
+path.write_text(
+    "\n".join(lines) + "\n",
+    encoding="utf-8",
+)
+
+print(f"[+] Compose image: {local_image}")
+COMPOSE_PATCH_PY
+
+docker compose \
+    -f "$COMPOSE_FILE" \
+    config >/dev/null
+
+echo "[+] Compose configuration is valid."
