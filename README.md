@@ -6,69 +6,82 @@ the Decepticon autonomous security platform.
 ## Features
 
 - SHIZBENDO terminal ASCII logo
-- Shizbendo engagement picker
-- Shizbendo CLI status line
-- Display-only shizbendo-* container names
-- AI-provider selection menu
+- `Shizbendo — pick an engagement`
+- `[Shizbendo#VERSION | Soundwave]`
+- Display-only `shizbendo-*` service names
+- AI-provider selection launcher
 - Persistent branded Docker CLI image
-- Interactive PTY wrapper
+- Interactive PTY output wrapper
+- Compatibility with existing engagements
 
-## Compatibility
+## Architecture
 
-Tested with Decepticon 1.1.40 on Kali Linux ARM64.
+Shizbendo changes visible terminal output. Internal identifiers remain
+unchanged so Docker Compose networking, environment variables, health
+checks, volumes, and engagements continue to work.
 
-Internal identifiers remain unchanged for compatibility, including:
+Examples of unchanged internal identifiers:
 
     DECEPTICON_*
     decepticon-langgraph
     decepticon-postgres
     decepticon-neo4j
     decepticon-litellm
+    decepticon-sandbox
 
-Only the visible terminal output is renamed.
+## Requirements
 
-## Installation
+- Linux
+- Docker and Docker Compose v2
+- Python 3
+- Root or sudo access
+- An installed and configured upstream Decepticon runtime
 
-Install the official Decepticon runtime first.
+Tested with Decepticon 1.1.40 on Kali Linux ARM64.
 
-Then run:
+## Install
 
     git clone https://github.com/shezbendo0o0o/shizbendo.git
     cd shizbendo
     sudo ./install.sh
 
-Start Shizbendo with:
+## Start
 
     sudo shizbendo
 
-## Updating
+## Update
 
     cd shizbendo
     git pull
     sudo ./install.sh
 
+## Uninstall the customization
+
+    cd shizbendo
+    sudo ./uninstall.sh
+
+The uninstaller restores files that existed before Shizbendo was
+installed. It does not delete upstream engagement data or Docker data.
+
 ## Security
 
-This repository does not contain:
+This repository intentionally excludes API keys, `.env` files, OAuth
+credentials, engagement workspaces, databases, Docker volumes, and the
+upstream launcher binary.
 
-- API keys
-- Environment files
-- Engagement workspaces
-- Databases
-- Docker volumes
-- The upstream launcher binary
+Never commit `/root/.decepticon/.env`.
 
-Never commit /root/.decepticon/.env.
+Use this software only on systems and networks for which you have
+explicit authorization.
 
-## Upstream
+## Upstream attribution
 
-Shizbendo is a customization layer for:
+Shizbendo is a customization layer for Decepticon by PurpleAILAB:
 
     https://github.com/PurpleAILAB/Decepticon
 
 Shizbendo is not affiliated with or endorsed by PurpleAILAB.
 
-## Authorized use only
+## License
 
-Use this software only on systems for which you have explicit
-authorization.
+Apache License 2.0. See `LICENSE` and `NOTICE`.

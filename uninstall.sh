@@ -2,19 +2,34 @@
 set -euo pipefail
 
 [[ "$EUID" -eq 0 ]] || {
-    echo "Run with sudo:"
-    echo "  sudo ./uninstall.sh"
+    echo "Run with sudo: sudo ./uninstall.sh" >&2
     exit 1
 }
 
-rm -f \
-    /usr/local/bin/shizbendo \
-    /usr/local/bin/shizbendo-pty \
-    /usr/local/bin/mscript-shizbendo-branding \
-    /usr/local/bin/mscript-decepticon
+STATE_DIR="/var/lib/shizbendo"
+MANIFEST="$STATE_DIR/current-manifest"
 
-rm -rf \
-    /root/.decepticon/shizbendo-branding
+[[ -f "$MANIFEST" ]] || {
+    echo "[-] No Shizbendo installation manifest was found." >&2
+    echo "[-] Nothing was removed." >&2
+    exit 1
+}
 
-echo "[+] Shizbendo customization removed."
-echo "[+] Engagements and upstream data were preserved."
+while IFS=$'\t' read -r action target backup; do
+    [[ -n "$target" ]] || continue
+    rm -rf -- "$target"
+
+    if [[ "$action" == "RESTORE" && -e "$backup" ]]; then
+        mkdir -p "$(dirname "$target")"
+        cp -a "$backup" "$target"
+        echo "[+] Restored: $target"
+    else
+        echo "[+] Removed installed file: $target"
+    fi
+done < "$MANIFEST"
+
+rm -f "$MANIFEST"
+
+echo
+ echo "[+] Shizbendo customization removed."
+echo "[+] Upstream data, engagements, databases, and volumes were preserved."

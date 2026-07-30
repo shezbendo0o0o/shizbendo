@@ -6,7 +6,6 @@
 *.pem
 *.token
 *.secret
-
 credentials*
 secrets*
 
@@ -20,12 +19,13 @@ logs/
 backups/
 
 *.log
+*.pid
 *.db
 *.sqlite
 *.sqlite3
 *.pyc
-
 __pycache__/
+
 .vscode/
 .idea/
 .DS_Store
