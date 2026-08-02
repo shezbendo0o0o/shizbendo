@@ -63,3 +63,75 @@ text = text.replace(
 fs.writeFileSync(filename, text, "utf8");
 
 console.log("Direct runtime display filter installed.");
+
+// SHIZBENDO_MOU_LAYOUT_PATCH_START
+
+function __shizbendoUiFiles(directory) {
+    const files = [];
+
+    for (const entry of fs.readdirSync(
+        directory,
+        { withFileTypes: true },
+    )) {
+        const filename =
+            `${directory}/${entry.name}`;
+
+        if (entry.isDirectory()) {
+            files.push(
+                ...__shizbendoUiFiles(filename),
+            );
+        } else if (
+            entry.isFile() &&
+            filename.endsWith(".js")
+        ) {
+            files.push(filename);
+        }
+    }
+
+    return files;
+}
+
+
+for (
+    const uiFilename of
+    __shizbendoUiFiles("/app/dist")
+) {
+    let uiText = fs.readFileSync(
+        uiFilename,
+        "utf8",
+    );
+
+    const originalUiText = uiText;
+
+    uiText = uiText
+        .replaceAll(
+            "ctrl+o: expand  ctrl+c: exit",
+            "Enter: send  ·  /: commands  ·  Ctrl+O: expand  ·  Ctrl+C: exit",
+        )
+        .replaceAll(
+            "ctrl+o: expand ctrl+c: exit",
+            "Enter: send  ·  /: commands  ·  Ctrl+O: expand  ·  Ctrl+C: exit",
+        )
+        .replaceAll(
+            "ctrl+o: expand",
+            "Ctrl+O: expand",
+        )
+        .replaceAll(
+            "ctrl+c: exit",
+            "Ctrl+C: exit",
+        );
+
+    if (uiText !== originalUiText) {
+        fs.writeFileSync(
+            uiFilename,
+            uiText,
+            "utf8",
+        );
+    }
+}
+
+console.log(
+    "MOU-style Shizbendo console patch installed.",
+);
+
+// SHIZBENDO_MOU_LAYOUT_PATCH_END
